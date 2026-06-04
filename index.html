@@ -46,14 +46,16 @@
   button.btn.gold.active{background:var(--gold);border-color:var(--gold);color:#231F20;}
   .who{font-size:12px;color:var(--sub);} .save{font-size:12px;font-weight:600;}
   .save.saving{color:var(--gold);} .save.saved{color:#3f8f57;} .save.errs{color:var(--pri);}
-  .card{background:#fff;border:1px solid #e0e4e0;border-radius:12px;padding:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
-  .layout{display:grid;grid-template-columns:1fr;gap:14px;} .layout.editing{grid-template-columns:1fr 320px;}
-  .svgbox{width:100%;overflow:auto;} svg{height:auto;display:block;}
+  .card{background:#fff;border:1px solid #e0e4e0;border-radius:12px;padding:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);min-width:0;}
+  .layout{display:grid;grid-template-columns:1fr;gap:14px;} .layout.editing{grid-template-columns:1fr;}
+  .svgbox{width:100%;overflow:auto;min-width:0;} svg{height:auto;display:block;}
   .node{cursor:pointer;} .node:hover .box,.node:hover .dia{filter:brightness(.97);}
   .node.sel .box{stroke-width:3.5px;} .node.sel .dia{stroke-width:4px;}
   svg.gaps-only .node:not(.is-gap){opacity:.16;} svg.gaps-only .edge{opacity:.12;}
   svg.no-links .edge{display:none;}
-  .editor{background:#fff;border:1px solid #e0e4e0;border-radius:12px;padding:14px;align-self:start;position:sticky;top:14px;max-height:90vh;overflow:auto;}
+  .editor{position:fixed;z-index:40;width:300px;max-height:82vh;overflow:auto;background:#fff;border:1px solid #cfd6d8;border-radius:12px;padding:14px;box-shadow:0 10px 34px rgba(0,0,0,.24);}
+  .editor .x{float:right;border:none;background:#eee;border-radius:6px;cursor:pointer;font-size:15px;line-height:1;padding:3px 9px;color:#555;}
+  .editor .x:hover{background:#e0c0c0;color:#a33;}
   .editor h3{margin:0 0 10px;font-size:15px;} .editor label{display:block;font-size:12px;font-weight:600;color:var(--sub);margin:10px 0 4px;}
   .editor input,.editor select,.editor textarea{width:100%;padding:7px 9px;border:1px solid #cbd5d8;border-radius:7px;font:inherit;font-size:13px;}
   .editor textarea{min-height:64px;resize:vertical;} .editor .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
@@ -183,24 +185,31 @@ function render(){reindex();const box=document.getElementById("svgbox");box.inne
   if(!document.getElementById("btnLinks").classList.contains("active"))svg.classList.add("no-links");
   if(document.getElementById("btnGaps").classList.contains("active"))svg.classList.add("gaps-only");
   document.querySelectorAll(".node").forEach(el=>{const id=el.getAttribute("data-id");
-    el.addEventListener("click",()=>onNode(id)); if(!editMode)el.addEventListener("mouseenter",()=>showDetail(id));});
+    el.addEventListener("click",ev=>onNode(id,ev)); if(!editMode)el.addEventListener("mouseenter",()=>showDetail(id));});
   if(selId&&byId[selId]){const el=document.querySelector(`.node[data-id="${selId}"]`);if(el)el.classList.add("sel");}
 }
 function showDetail(id){const n=byId[id];if(!n)return;const pri=n.pri?`<span class="pri">Priority pain point. </span>`:"";
   document.getElementById("detail").innerHTML=`<b>${esc(n.label)}</b> &middot; ${esc(state.phases[n.phase]||"")} &middot; <b>${esc(n.owner||state.lanes[n.lane])}</b><br>${pri}${esc(n.note)}`;}
-function onNode(id){selId=id;document.querySelectorAll(".node.sel").forEach(e=>e.classList.remove("sel"));
+function onNode(id,ev){selId=id;document.querySelectorAll(".node.sel").forEach(e=>e.classList.remove("sel"));
   const el=document.querySelector(`.node[data-id="${id}"]`);if(el)el.classList.add("sel");
-  if(editMode)openEditor(id);else showDetail(id);}
+  if(editMode)openEditor(id,ev);else showDetail(id);}
 
 /* ============== editor ============== */
 function opt(v,t,sel){return `<option value="${v}"${v==sel?" selected":""}>${esc(""+t)}</option>`;}
-function openEditor(id){const n=byId[id],ed=document.getElementById("editor");if(!n){ed.classList.add("hidden");return;}
+function positionEditor(id,ev){const ed=document.getElementById("editor");let ax,ay;
+  if(ev&&typeof ev.clientX==="number"){ax=ev.clientX;ay=ev.clientY;}
+  else{const el=document.querySelector(`.node[data-id="${id}"]`);if(el){const r=el.getBoundingClientRect();ax=r.right;ay=r.top;}else{ax=window.innerWidth/2;ay=120;}}
+  const ew=ed.offsetWidth||300, eh=ed.offsetHeight||420;
+  let left=ax+16; if(left+ew>window.innerWidth-8)left=ax-ew-16; if(left<8)left=8;
+  let top=ay-10; if(top+eh>window.innerHeight-8)top=window.innerHeight-eh-8; if(top<8)top=8;
+  ed.style.left=left+"px"; ed.style.top=top+"px";}
+function openEditor(id,ev){const n=byId[id],ed=document.getElementById("editor");if(!n){ed.classList.add("hidden");return;}
   const phaseOpts=state.phases.map((s,i)=>opt(i,(i+1)+"  "+s,n.phase)).join("");
   const laneOpts=state.lanes.map((s,i)=>opt(i,s,n.lane)).join("");
   const statusOpts=["process","gap","decision","measure","idea"].map(s=>opt(s,STATUS_LABEL[s],n.status)).join("");
   const outLinks=state.edges.map((e,i)=>({e,i})).filter(o=>o.e[0]===id);
   const others=state.nodes.filter(x=>x.id!==id);
-  ed.innerHTML=`<h3>Edit step</h3>
+  ed.innerHTML=`<h3>Edit step <button class="x" id="fClose">&times;</button></h3>
     <label>Label</label><input id="fLabel" value="${esc(n.label)}">
     <label>Owner</label><input id="fOwner" value="${esc(n.owner||"")}">
     <label>Status</label><select id="fStatus">${statusOpts}</select>
@@ -218,7 +227,8 @@ function openEditor(id){const n=byId[id],ed=document.getElementById("editor");if
       <div style="display:flex;gap:6px;margin-top:6px;"><select id="fNewTarget" style="flex:1"><option value="">link to&hellip;</option>${others.map(x=>opt(x.id,x.label,"")).join("")}</select><button class="btn" id="fAddLink">add</button></div>
     </div>
     <div class="row2"><button class="btnApply" id="fApply">Apply</button><button class="btnDel" id="fDel">Delete</button></div>`;
-  ed.classList.remove("hidden");document.getElementById("layout").classList.add("editing");
+  ed.classList.remove("hidden");positionEditor(id,ev);
+  document.getElementById("fClose").onclick=()=>{ed.classList.add("hidden");selId=null;document.querySelectorAll(".node.sel").forEach(e=>e.classList.remove("sel"));};
   ed.querySelectorAll(".lk button").forEach(b=>b.onclick=()=>{state.edges.splice(+b.getAttribute("data-ei"),1);openEditor(id);render();scheduleSave();});
   document.getElementById("fAddLink").onclick=()=>{const t=document.getElementById("fNewTarget").value;if(t){state.edges.push([id,t,"",0]);openEditor(id);render();scheduleSave();}};
   document.getElementById("fApply").onclick=()=>applyEditor(id);
