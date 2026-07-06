@@ -9,7 +9,7 @@
    SETUP AND DISPLAY SETTINGS
    ============================================================ */
 
-// Paste your Apps Script web app URL here (Deploy > Manage deployments > URL).
+// Apps Script web app URL (the data service).
 var API_URL = "https://script.google.com/macros/s/AKfycbx6dHztswJgd2AhvcjoKRWu5pknh1eOQAQSx1kq6gBMJO2JTUGxIAQXaLtk5UD9_LHuAQ/exec";
 
 // Default columns when someone first opens the page. Viewers can change
@@ -35,7 +35,7 @@ var TEXT = {
   unlock: "Unlock costs",
   edit: "Edit costs",
   lock: "Lock",
-  tabs: { today: "Today", week: "This week", month: "This month", year: "This year" },
+  tabs: { today: "Today", week: "This week", month: "This month", year: "This year", custom: "Date range" },
   headings: {
     today: "Today",
     week: "This week (Mon to today)",
@@ -82,6 +82,7 @@ h1{font-size:clamp(22px,3.4vw,32px);font-weight:700;letter-spacing:-.01em;color:
 .chip{border:1px solid var(--line);background:var(--card);padding:6px 14px;border-radius:14px;font:500 12px "Helvetica Neue",Helvetica,Arial,sans-serif;color:var(--muted);cursor:pointer}
 .chip.on{background:var(--black);border-color:var(--black);color:#fff;font-weight:700}
 .chip.blocked{opacity:.45;cursor:not-allowed;text-decoration:line-through}
+.dinput{border:1px solid var(--line);border-radius:3px;padding:7px 10px;font:400 13px "Helvetica Neue",Helvetica,Arial,sans-serif;color:var(--ink);background:var(--card)}
 .card{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--yellow);border-radius:3px;padding:4px 0;overflow-x:auto;margin-top:14px}
 table{width:100%;border-collapse:collapse;min-width:620px}
 th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--bluedeep);font-weight:700;text-align:right;padding:12px 14px;border-bottom:2px solid var(--black)}
@@ -142,6 +143,7 @@ td.dim,span.dim{color:var(--muted)}
         <button class="tab" data-v="week"></button>
         <button class="tab" data-v="month"></button>
         <button class="tab" data-v="year"></button>
+        <button class="tab" data-v="custom"></button>
       </div>
       <div class="right">
         <button class="btn ghost" id="printBtn"></button>
@@ -149,6 +151,15 @@ td.dim,span.dim{color:var(--muted)}
         <button class="btn ghost" id="lockBtn" style="display:none"></button>
         <button class="btn" id="refreshBtn"></button>
       </div>
+    </div>
+    <div class="selbar no-print" id="dateBar" style="display:none">
+      <span class="lbl">Range</span>
+      <input type="date" id="dateFrom" class="dinput">
+      <span class="stamp">to</span>
+      <input type="date" id="dateTo" class="dinput">
+      <button class="btn ghost" id="dateApply">Apply</button>
+      <button class="btn ghost" id="histBtn" style="display:none"></button>
+      <span class="stamp" id="histNote"></span>
     </div>
     <div class="metaline no-print">Data as at <span id="stamp">&hellip;</span> NZT</div>
     <div class="selbar no-print"><span class="lbl">Team</span><span id="repChips"></span></div>
@@ -222,7 +233,30 @@ function bounds(v){
   if(v==="today") return [TODAY,TODAY];
   if(v==="week")  return [WEEK_START,TODAY];
   if(v==="month") return [MONTH_START,TODAY];
+  if(v==="custom") return [customFrom, customTo];
   return [YEAR_START,TODAY];
+}
+// Custom range, defaults to month to date. Pickers are clamped to the
+// earliest year currently loaded (this year, or last year once history
+// has been loaded via the Include button).
+var customFrom = MONTH_START, customTo = TODAY;
+function dataMin(){ return ((D && D.yearMin) || TODAY.slice(0,4)) + "-01-01"; }
+function fmtDay(s){
+  return new Date(s+"T00:00:00Z").toLocaleDateString("en-NZ",{timeZone:"UTC",day:"numeric",month:"short",year:"numeric"});
+}
+function periodLabel(v){
+  if (v === "custom") return fmtDay(customFrom) + " to " + fmtDay(customTo);
+  return TEXT.headings[v];
+}
+function applyRange(){
+  var f = document.getElementById("dateFrom").value;
+  var t = document.getElementById("dateTo").value;
+  if (!f || !t) return;
+  if (f < dataMin()) f = dataMin();
+  if (t > TODAY) t = TODAY;
+  if (f > t){ var x = f; f = t; t = x; }
+  customFrom = f; customTo = t;
+  render();
 }
 function typeWarning(k){
   var w = ((D&&D.warnings)||[]).filter(function(x){ return x.indexOf(k+" ")===0; });
@@ -281,7 +315,7 @@ function summary(v){
     rows += "</tr>";
   }
 
-  return "<div class=section-h>"+TEXT.headings[v]+"</div><div class=card><table><thead>"+head+"</thead><tbody>"+rows+"</tbody></table></div>";
+  return "<div class=section-h>"+periodLabel(v)+"</div><div class=card><table><thead>"+head+"</thead><tbody>"+rows+"</tbody></table></div>";
 }
 
 /* ---- monthly matrix ---- */
@@ -418,6 +452,21 @@ function render(){
   });
   document.getElementById("warnings").textContent = relevant.length ? "Data warnings: " + relevant.join(" | ") : "";
 
+  // date range bar only on the custom tab
+  var db = document.getElementById("dateBar");
+  db.style.display = view === "custom" ? "" : "none";
+  if (view === "custom"){
+    var fi = document.getElementById("dateFrom"), ti = document.getElementById("dateTo");
+    fi.value = customFrom; ti.value = customTo;
+    fi.min = dataMin(); fi.max = TODAY; ti.min = dataMin(); ti.max = TODAY;
+    var priorYear = String(Number(D.year) - 1);
+    var hasHistory = D.yearMin && D.yearMin <= priorYear;
+    var hb = document.getElementById("histBtn");
+    hb.style.display = hasHistory ? "none" : "";
+    hb.textContent = "Include " + priorYear;
+    document.getElementById("histNote").textContent = hasHistory ? (D.yearMin + " onwards loaded") : "";
+  }
+
   // lock button only visible while costs are unlocked
   var lockBtn = document.getElementById("lockBtn");
   lockBtn.textContent = TEXT.lock;
@@ -443,7 +492,7 @@ document.getElementById("printBtn").addEventListener("click", function(){
   var reps = visibleReps();
   var who = reps.length === D.reps.length ? "Team" : reps.map(function(r){ return r.name.split(" ")[0]; }).join(", ");
   var metric = COSTS ? costPerLabel().replace(" / ", " per ") : "Sales activity";
-  var period = TEXT.headings[view].replace(/\s*\(.*\)/, "");
+  var period = periodLabel(view).replace(/\s*\(.*\)/, "");
   var today = new Date().toLocaleDateString("en-NZ", { timeZone: "Pacific/Auckland", day: "numeric", month: "short", year: "numeric" });
   var name = who + " - " + metric + " - " + period + " - " + today;
 
@@ -458,11 +507,37 @@ document.getElementById("printBtn").addEventListener("click", function(){
   window.print();
 });
 document.getElementById("lockBtn").addEventListener("click", lockCosts);
+document.getElementById("dateApply").addEventListener("click", applyRange);
+document.getElementById("histBtn").addEventListener("click", function(){
+  var hb = this;
+  var priorYear = String(Number(D.year) - 1);
+  if (hb.dataset.busy) return;
+  hb.dataset.busy = "1";
+  hb.textContent = "Loading " + priorYear + "\u2026";
+  document.getElementById("histNote").textContent = "First load takes about a minute, then it is cached for everyone.";
+  apiGet({ extended: 1, pin: PIN }).then(function(res){
+    delete hb.dataset.busy;
+    if (res.ok){
+      D = res;
+      if (res.costs) COSTS = res.costs;
+      document.getElementById("stamp").textContent = D.fetched;
+      render();
+    } else {
+      hb.textContent = "Include " + priorYear;
+      document.getElementById("histNote").textContent = "Could not load history: " + (res.error || "unknown error");
+    }
+  }).catch(function(){
+    delete hb.dataset.busy;
+    hb.textContent = "Include " + priorYear;
+    document.getElementById("histNote").textContent = "Could not load history, check your connection and try again.";
+  });
+});
 document.getElementById("costBtn").addEventListener("click", function(){ COSTS ? editFlow() : unlockFlow(); });
 document.getElementById("refreshBtn").addEventListener("click", function(){
   var btn = this;
   btn.textContent = "Refreshing\u2026";
-  apiGet({ fresh: 1, pin: PIN }).then(function(res){
+  var isExt = D && D.yearMin && D.yearMin < D.year;
+  apiGet({ fresh: 1, pin: PIN, extended: isExt ? 1 : null }).then(function(res){
     if (res.ok){
       D = res;
       if (res.costs) COSTS = res.costs;
